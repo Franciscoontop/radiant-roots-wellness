@@ -114,9 +114,9 @@ function injectStyles() {
 }
     }
  #ai-chat-bubble.active-spiral {
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(0.5);
+  bottom: 607px; right: 353px;
+  width: 26px; height: 26px;
+  transform: rotate(720deg); box-shadow: none;
 }
 #ai-chat-bubble.active-spiral svg { width: 14px; height: 14px; fill: #000; }
     /* ── CHAT WINDOW ── */
