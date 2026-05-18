@@ -75,7 +75,7 @@ function injectStyles() {
       box-shadow: 0 30px 60px rgba(0,0,0,0.9);
       pointer-events: none; z-index: 2147483648;
       opacity: 0; visibility: hidden;
-      transition: opacity 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+      transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.165,0.84,0.44,1), visibility 0.5s;
       font-family: 'Segoe UI', Arial, sans-serif;
       color: #fff;
     }
@@ -99,26 +99,27 @@ function injectStyles() {
 
     /* ── CHAT BUBBLE ── */
     #ai-chat-bubble {
-  position: absolute; bottom: 20px; right: 20px;
-  width: 60px; height: 60px;
-  background: #fff; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; pointer-events: auto;
-  box-shadow: 0 0 15px rgba(255,255,255,0.3);
-  z-index: 2147483649;
-  transition: bottom 0.8s cubic-bezier(0.34,1.56,0.64,1),
-              right 0.8s cubic-bezier(0.34,1.56,0.64,1),
-              width 0.5s ease, height 0.5s ease,
-              transform 0.8s cubic-bezier(0.22,1,0.36,1),
-              box-shadow 0.3s ease;
-}
+      position: absolute; bottom: 20px; right: 20px;
+      width: 60px; height: 60px;
+      background: #fff; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; pointer-events: auto;
+      box-shadow: 0 0 15px rgba(255,255,255,0.3);
+      z-index: 2147483649;
+      transition: bottom 0.8s cubic-bezier(0.34,1.56,0.64,1),
+                  right 0.8s cubic-bezier(0.34,1.56,0.64,1),
+                  width 0.5s ease, height 0.5s ease,
+                  transform 0.8s cubic-bezier(0.22,1,0.36,1),
+                  box-shadow 0.3s ease;
     }
- #ai-chat-bubble.active-spiral {
-  bottom: 607px; right: 353px;
-  width: 26px; height: 26px;
-  transform: rotate(720deg); box-shadow: none;
-}
-#ai-chat-bubble.active-spiral svg { width: 14px; height: 14px; fill: #000; }
+    #ai-chat-bubble svg { transition: all 0.6s ease; }
+    #ai-chat-bubble.active-spiral {
+      bottom: 607px; right: 353px;
+      width: 26px; height: 26px;
+      transform: rotate(720deg); box-shadow: none;
+    }
+    #ai-chat-bubble.active-spiral svg { width: 14px; height: 14px; fill: #000; }
+
     /* ── CHAT WINDOW ── */
     #ai-chat-window {
       position: absolute; bottom: 90px; right: 20px;
