@@ -25,7 +25,7 @@
 //  API_ROUTE       : your backend streaming endpoint
 // ============================================================
 const CONFIG = {
-  SHEET_URL:       "YOUR_GOOGLE_SHEET_CSV_URL_HERE",
+  SHEET_URL:       "https://docs.google.com/spreadsheets/d/e/2PACX-1vQVsTHX1E0Jd-f2oVoNH8N2YXdzgPZcn6iwmHE7GM8-nvMkZxZ93KEtN0jyCd4iqu1NjvBvmcOx9eu7/pubhtml",
   LEADS_SHEET_URL: "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE",
   AGENT_NAME:      "AI Assistant",
   API_ROUTE:       "/api/chat",
