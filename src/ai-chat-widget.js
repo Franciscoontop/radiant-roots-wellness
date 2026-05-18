@@ -75,7 +75,7 @@ function injectStyles() {
       box-shadow: 0 30px 60px rgba(0,0,0,0.9);
       pointer-events: none; z-index: 2147483648;
       opacity: 0; visibility: hidden;
-      transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.165,0.84,0.44,1), visibility 0.5s;
+      transition: opacity 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
       font-family: 'Segoe UI', Arial, sans-serif;
       color: #fff;
     }
