@@ -1,288 +1,678 @@
-import { useState, useRef, useEffect } from 'react';
-import { X, Send, Leaf, ChevronDown } from 'lucide-react';
+// ============================================================
+//  AI CHAT WIDGET — Vite / Vanilla JS Drop-in
+//  Works with any HTML project (Vite, plain HTML, etc.)
+//
+//  HOW TO INTEGRATE IN 3 STEPS:
+//
+//  STEP 1 — Copy this file into your project, e.g.:
+//           src/ai-chat-widget.js
+//
+//  STEP 2 — Import it in your main entry file (main.js or index.js):
+//           import './ai-chat-widget.js'
+//
+//  STEP 3 — Fill in your CONFIG values below (Sheet URL, etc.)
+//
+//  That's it. The widget mounts itself automatically.
+//  You do NOT need to add any HTML — it injects everything.
+// ============================================================
 
-interface Message {
-  id: number;
-  role: 'assistant' | 'user';
-  text: string;
-}
 
-const initialMessage: Message = {
-  id: 0,
-  role: 'assistant',
-  text: "Hi, and welcome to Radiant Roots Wellness 🌿 I'm here to help you learn more about holistic health and working with Dr. Amara. Whether you're dealing with gut issues, hormone imbalances, fatigue, or just want to feel your best, you're in the right place. What brings you here today?",
+// ============================================================
+//  ① CONFIG — EDIT THESE VALUES FOR EACH CLIENT
+//  SHEET_URL       : published Google Sheet CSV link
+//  LEADS_SHEET_URL : Google Apps Script web app URL (saves leads)
+//  AGENT_NAME      : fallback name shown in chat header
+//  API_ROUTE       : your backend streaming endpoint
+// ============================================================
+const CONFIG = {
+  SHEET_URL:       "YOUR_GOOGLE_SHEET_CSV_URL_HERE",
+  LEADS_SHEET_URL: "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE",
+  AGENT_NAME:      "AI Assistant",
+  API_ROUTE:       "/api/chat",
 };
 
-const quickReplies = [
-  "What conditions do you treat?",
-  "How much does it cost?",
-  "Do you take insurance?",
-  "Can I do virtual sessions?",
-  "Book a discovery call",
-];
 
-interface BotResponse {
-  pattern: RegExp;
-  response: string;
+// ============================================================
+//  ② STATE — internal variables, no need to touch these
+// ============================================================
+let SHEET_STRING = "";
+let SHEET_DATA   = {};
+let chatHistory  = [];
+let hasPopped    = false;
+let leadSent     = false;
+
+let lead = {
+  name:    null,
+  email:   null,
+  phone:   null,
+  service: null,
+};
+
+
+// ============================================================
+//  ③ INJECT CSS — widget styles are self-contained here
+//  If you want to override styles, add CSS after this in your
+//  own stylesheet using the same class/id names.
+// ============================================================
+function injectStyles() {
+  const style = document.createElement("style");
+  style.textContent = `
+    /* ── WRAPPER ── */
+    #ai-widget-wrapper {
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 2147483647;
+    }
+
+    /* ── EXIT MODAL ── */
+    #ai-exit-modal {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -45%) scale(0.95);
+      width: 90%; max-width: 400px;
+      background: #111; border: 1px solid #333; border-radius: 24px;
+      padding: 40px; text-align: center;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.9);
+      pointer-events: none; z-index: 2147483648;
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.165,0.84,0.44,1), visibility 0.5s;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #fff;
+    }
+    #ai-exit-modal.active {
+      opacity: 1; visibility: visible;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .ai-modal-offer  { font-size: 26px; font-weight: bold; margin-bottom: 12px; }
+    .ai-modal-text   { font-size: 16px; margin-bottom: 24px; color: #aaa; }
+    .ai-promo-code   {
+      background: #1a1a1a; border: 1px dashed #444;
+      padding: 12px 24px; font-size: 22px; font-weight: bold;
+      border-radius: 12px; margin-bottom: 24px;
+    }
+    .ai-close-modal-btn {
+      background: #fff; color: #000; border: none;
+      padding: 14px 30px; border-radius: 12px;
+      cursor: pointer; font-weight: bold; font-size: 15px;
+    }
+
+    /* ── CHAT BUBBLE ── */
+    #ai-chat-bubble {
+      position: absolute; bottom: 20px; right: 20px;
+      width: 60px; height: 60px;
+      background: #fff; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; pointer-events: auto;
+      box-shadow: 0 0 15px rgba(255,255,255,0.3);
+      z-index: 2147483649;
+      transition: bottom 0.8s cubic-bezier(0.34,1.56,0.64,1),
+                  right 0.8s cubic-bezier(0.34,1.56,0.64,1),
+                  width 0.5s ease, height 0.5s ease,
+                  transform 0.8s cubic-bezier(0.22,1,0.36,1),
+                  box-shadow 0.3s ease;
+    }
+    #ai-chat-bubble svg { transition: all 0.6s ease; }
+    #ai-chat-bubble.active-spiral {
+      bottom: 607px; right: 353px;
+      width: 26px; height: 26px;
+      transform: rotate(720deg); box-shadow: none;
+    }
+    #ai-chat-bubble.active-spiral svg { width: 14px; height: 14px; fill: #000; }
+
+    /* ── CHAT WINDOW ── */
+    #ai-chat-window {
+      position: absolute; bottom: 90px; right: 20px;
+      width: 370px; height: 560px; max-height: 85svh;
+      background: #111; border: 1px solid #333; border-radius: 20px;
+      display: none; flex-direction: column;
+      box-shadow: 0 15px 50px rgba(0,0,0,0.9);
+      pointer-events: auto; overflow: hidden;
+      opacity: 0; transition: opacity 0.4s ease;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    #ai-chat-window.open { display: flex; opacity: 1; }
+
+    /* ── HEADER ── */
+    #ai-chat-header {
+      background: #1a1a1a; padding: 14px 16px;
+      border-bottom: 1px solid #333;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-shrink: 0; color: #fff;
+    }
+    .ai-header-title { display: flex; align-items: center; gap: 10px; }
+    .ai-icon-dock    { width: 26px; height: 26px; border-radius: 50%; background: #fff; flex-shrink: 0; }
+    .ai-header-text b    { display: block; font-size: 14px; color: #fff; }
+    .ai-header-text span { font-size: 11px; color: #00ff88; }
+
+    /* ── MESSAGES ── */
+    #ai-response-container {
+      flex: 1; padding: 14px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 10px;
+      background: #050505; scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+    }
+    .ai-message-row { display: flex; align-items: flex-end; gap: 8px; max-width: 88%; }
+    .ai-row-ai      { align-self: flex-start; }
+    .ai-row-user    { align-self: flex-end; flex-direction: row-reverse; }
+    .ai-avatar      { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .ai-avatar-ai   { background: #fff; }
+    .ai-avatar-user { background: #333; font-size: 10px; color: #aaa; border: 1px solid #444; }
+    .ai-msg-bubble  { padding: 10px 14px; border-radius: 15px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; max-width: 100%; }
+    .ai-msg-ai      { background: #222; color: #fff; border: 1px solid #333; border-bottom-left-radius: 4px; }
+    .ai-msg-user    { background: #fff; color: #000; border-bottom-right-radius: 4px; }
+
+    /* ── BOOKING BUTTON ── */
+    .ai-booking-btn-wrap { padding: 4px 14px 10px; }
+    .ai-booking-btn {
+      display: block; width: 100%; padding: 12px;
+      background: #fff; color: #000; border: none; border-radius: 12px;
+      font-size: 14px; font-weight: bold; text-align: center;
+      text-decoration: none; cursor: pointer; transition: background 0.2s;
+    }
+    .ai-booking-btn:hover { background: #e0e0e0; }
+
+    /* ── TYPING DOTS ── */
+    .ai-msg-bubble.thinking-state { display: inline-flex !important; width: auto !important; padding: 6px 12px !important; align-items: center; }
+    .ai-thinking-dots { display: inline-flex; align-items: center; gap: 3px; }
+    .ai-dot { width: 4px; height: 4px; background: #888; border-radius: 50%; animation: aiBounce 1.4s infinite ease-in-out; }
+    .ai-dot:nth-child(2) { animation-delay: 0.2s; }
+    .ai-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes aiBounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-5px); } }
+
+    /* ── INPUT BAR ── */
+    .ai-input-area {
+      padding: 12px 14px; background: #111;
+      border-top: 1px solid #333;
+      display: flex; gap: 8px; flex-shrink: 0; align-items: center;
+    }
+    .ai-input-area input {
+      flex: 1; padding: 10px 14px;
+      background: #1a1a1a; border: 1px solid #444;
+      color: #fff; border-radius: 22px; outline: none;
+      font-size: max(16px, 14px);
+    }
+    .ai-send-btn {
+      padding: 10px 16px; background: #fff; color: #000;
+      border: none; border-radius: 22px;
+      cursor: pointer; font-weight: bold; font-size: 13px;
+      flex-shrink: 0; white-space: nowrap;
+    }
+
+    /* ── MOBILE ── */
+    @media (max-width: 480px) {
+      #ai-chat-bubble { bottom: 16px; right: 16px; width: 54px; height: 54px; }
+      #ai-chat-window {
+        position: fixed; bottom: 0; right: 0; left: 0; top: 0;
+        width: 100%; height: 100%; max-height: 100%;
+        border-radius: 0; border: none;
+      }
+      #ai-chat-bubble.active-spiral {
+        opacity: 0; pointer-events: none;
+        width: 54px; height: 54px;
+        bottom: 16px; right: 16px; transform: none;
+      }
+      .ai-msg-bubble { font-size: 15px; }
+      .ai-input-area { padding: 12px 16px 20px; }
+      .ai-input-area input { padding: 12px 16px; }
+      .ai-send-btn { padding: 12px 18px; }
+      .ai-message-row { max-width: 92%; }
+      #ai-exit-modal { padding: 28px 20px; }
+      .ai-modal-offer { font-size: 22px; }
+    }
+
+    @media (min-width: 481px) and (max-width: 768px) {
+      #ai-chat-window { width: calc(100vw - 32px); right: 16px; bottom: 84px; }
+    }
+  `;
+  document.head.appendChild(style);
 }
 
-const botResponses: BotResponse[] = [
-  {
-    pattern: /insurance/i,
-    response: "Dr. Amara is a private-pay practice and doesn't accept insurance directly. However, she provides superbills that many clients submit for possible reimbursement. She also offers sliding scale pricing and payment plans to make care accessible. Would you like to know about current payment options?",
-  },
-  {
-    pattern: /cost|price|how much/i,
-    response: "Pricing varies based on what you need. An initial 90-minute consultation is $350–$450. Dr. Amara's 3-month programs range from $2,400–$2,800 and include multiple sessions, lab testing, and personalized protocols. Group programs start at $397, and digital courses start at just $47. She also offers sliding scale spots and payment plans. What type of support are you looking for?",
-  },
-  {
-    pattern: /virtual|online|remote|video/i,
-    response: "Yes! Dr. Amara sees clients both in-person at her Bronx wellness center AND virtually via secure video — nationwide. Almost all services, including lab review and ongoing sessions, are available virtually. Many clients outside NYC work with her entirely online. Would you like to book a free virtual discovery call?",
-  },
-  {
-    pattern: /gut|ibs|digestion|bloat|stomach/i,
-    response: "Gut health is one of Dr. Amara's specialties! She works with clients dealing with IBS, SIBO, bloating, leaky gut, constipation, diarrhea, and more. Her approach combines functional lab testing (like the GI-MAP stool analysis) with personalized nutrition and protocols to get to the ROOT cause — not just manage symptoms. Her 3-Month Gut Healing Program has helped hundreds of clients. Shall I tell you more, or would you like to book a free discovery call?",
-  },
-  {
-    pattern: /hormone|pcos|period|cycle|menopause|thyroid/i,
-    response: "Hormonal health is another of Dr. Amara's core specialties. She uses comprehensive testing (including the DUTCH hormone panel — far more complete than standard bloodwork) to understand your full hormonal picture, then creates a personalized protocol combining nutrition, herbs, and lifestyle changes. Many clients see significant improvements within 3 months. Would you like to book a free discovery call to see if the Hormone Reset Program is right for you?",
-  },
-  {
-    pattern: /fatigue|tired|energy|burnout|exhausted/i,
-    response: "Chronic fatigue and burnout are SO common, and so often dismissed by conventional medicine. Dr. Amara investigates the root causes — adrenal dysfunction, hormonal imbalances, gut health, nutrient deficiencies, thyroid issues — and creates a comprehensive restoration plan. You mentioned fatigue — that's often connected to gut health and hormones. Many clients with fatigue also benefit from hormone testing. Want to book a free discovery call to discuss what's going on for you?",
-  },
-  {
-    pattern: /autoimmune/i,
-    response: "Dr. Amara works with clients with various autoimmune conditions including Hashimoto's, lupus, rheumatoid arthritis, and more. Her approach focuses on identifying triggers (gut permeability, food sensitivities, stress), reducing inflammation through targeted nutrition and protocols, and supporting immune regulation. Would you like to discuss your specific situation on a free discovery call?",
-  },
-  {
-    pattern: /book|appointment|schedule|call|discovery/i,
-    response: "Dr. Amara offers a FREE 20-minute discovery call for new clients — no pressure, no sales pitch. You'll share what you're experiencing, and she'll tell you honestly if she can help. To book, just fill out the contact form on this website, or call (646) 555-9047. Current spring special: $50 off any 3-month program! Ready to take that first step? 🌿",
-  },
-  {
-    pattern: /anxiety|depression|mental health|stress/i,
-    response: "The connection between mental health and gut/hormonal health is profound — and often overlooked. Dr. Amara uses functional testing to investigate whether gut dysbiosis, nutrient deficiencies, hormonal imbalances, or blood sugar instability are contributing to anxiety and depression. She works alongside therapists and doesn't replace mental health care — she complements it. Want to explore whether a root-cause approach could help?",
-  },
-  {
-    pattern: /what do you treat|conditions|help with/i,
-    response: "Dr. Amara specializes in: 🌿 Gut health (IBS, SIBO, bloating, leaky gut), ⚡ Hormonal imbalances (PCOS, irregular cycles, perimenopause), 😴 Chronic fatigue & burnout, 🛡️ Autoimmune conditions, 🧠 Anxiety & depression (through the gut-brain connection), 📊 Metabolic health & pre-diabetes, 🦋 Thyroid dysfunction, and more. What are you dealing with?",
-  },
-  {
-    pattern: /how long|results|when/i,
-    response: "Every person is different — healing timelines depend on how long you've had symptoms, the root cause, and your commitment to the protocol. Many clients feel meaningful improvements within 4–8 weeks. More complex chronic conditions typically improve significantly within 3–6 months. Dr. Amara won't make guarantees, but she'll give you her honest assessment based on your specific situation on a discovery call.",
-  },
-  {
-    pattern: /sliding scale|afford|payment plan|payment/i,
-    response: "Accessibility is core to Dr. Amara's mission. She offers: 💙 Sliding scale pricing for select clients based on income, 💳 Payment plans (3–6 monthly installments for programs), 👥 Group programs starting at $397 (much more affordable than 1-on-1), 📱 Digital courses starting at $47. Please mention your situation on your discovery call — she genuinely wants healing to be accessible. 🌿",
-  },
-];
 
-function getBotResponse(userMessage: string): string {
-  const match = botResponses.find(r => r.pattern.test(userMessage));
-  if (match) return match.response;
-  return "That's a great question! For the most accurate answer, I'd recommend booking a free 20-minute discovery call with Dr. Amara. She can give you personalized guidance based on your specific situation. In the meantime, feel free to ask me anything else about how Radiant Roots Wellness can help you heal. 🌿";
-}
+// ============================================================
+//  ④ INJECT HTML — builds the widget DOM and appends to body
+//  Called once on init. All IDs are prefixed with "ai-"
+//  to avoid conflicts with your site's existing elements.
+// ============================================================
+function injectHTML() {
+  const wrapper = document.createElement("div");
+  wrapper.id = "ai-widget-wrapper";
+  wrapper.innerHTML = `
+    <!-- EXIT INTENT MODAL -->
+    <div id="ai-exit-modal">
+      <div class="ai-modal-offer">Don't Leave Yet! 🚀</div>
+      <div class="ai-modal-text">Get a free demo before you go.</div>
+      <div class="ai-promo-code" id="ai-modal-promo">FREE-DEMO</div>
+      <button class="ai-close-modal-btn" id="ai-claim-btn">Claim Offer</button>
+      <p style="font-size:12px;color:#555;margin-top:20px;cursor:pointer;" id="ai-maybe-later">Maybe later</p>
+    </div>
 
-export default function AIChatWidget() {
-  const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([initialMessage]);
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+    <!-- FLOATING CHAT BUBBLE -->
+    <div id="ai-chat-bubble">
+      <svg style="width:30px;height:30px;fill:#000" viewBox="0 0 24 24">
+        <path d="M19,9L17.75,11.75L15,13L17.75,14.25L19,17L20.25,14.25L23,13L20.25,11.75L19,9M9,5L7,11L1,13L7,15L9,21L11,15L17,13L11,11L9,5M19,1L18.25,2.75L16.5,3.5L18.25,4.25L19,6L19.75,4.25L21.5,3.5L19.75,2.75L19,1Z"/>
+      </svg>
+    </div>
 
-  useEffect(() => {
-    if (open && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, open]);
-
-  useEffect(() => {
-    if (open && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
-  }, [open]);
-
-  const sendMessage = (text: string) => {
-    if (!text.trim()) return;
-
-    const userMsg: Message = { id: Date.now(), role: 'user', text };
-    setMessages(prev => [...prev, userMsg]);
-    setInput('');
-    setIsTyping(true);
-
-    setTimeout(() => {
-      const botMsg: Message = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        text: getBotResponse(text),
-      };
-      setMessages(prev => [...prev, botMsg]);
-      setIsTyping(false);
-    }, 1000 + Math.random() * 800);
-  };
-
-  return (
-    <>
-      {/* Chat toggle button */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="chat-widget"
-        style={{
-          width: '60px',
-          height: '60px',
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #4A6741, #9CAF88)',
-          border: 'none',
-          boxShadow: '0 8px 32px rgba(74,103,65,0.35)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          transition: 'all 0.3s ease',
-        }}
-        aria-label="Open AI chat assistant"
-      >
-        {open ? <ChevronDown size={24} color="white" /> : <Leaf size={24} color="white" />}
-      </button>
-
-      {/* Chat window */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: '100px',
-          left: '28px',
-          width: 'min(360px, calc(100vw - 56px))',
-          zIndex: 998,
-          opacity: open ? 1 : 0,
-          transform: open ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.95)',
-          transition: 'all 0.4s ease',
-          pointerEvents: open ? 'all' : 'none',
-        }}
-      >
-        <div style={{ borderRadius: '24px', overflow: 'hidden', boxShadow: '0 20px 60px rgba(58,46,40,0.2)', background: '#F7F3E9' }}>
-          {/* Header */}
-          <div style={{ background: 'linear-gradient(135deg, #4A6741, #9CAF88)', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Leaf size={18} color="white" />
-                </div>
-                <div>
-                  <p style={{ color: 'white', fontWeight: 700, fontSize: '14px', fontFamily: 'Nunito Sans, sans-serif' }}>Radiant Roots AI</p>
-                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px', fontFamily: 'Nunito Sans, sans-serif' }}>Wellness guide · Usually responds instantly</p>
-                </div>
-              </div>
-              <button onClick={() => setOpen(false)} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                <X size={14} color="white" />
-              </button>
-            </div>
-          </div>
-
-          {/* Messages */}
-          <div style={{ height: '320px', overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {messages.map((msg) => (
-              <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                {msg.role === 'assistant' && (
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, #4A6741, #9CAF88)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: '8px', marginTop: '2px' }}>
-                    <Leaf size={14} color="white" />
-                  </div>
-                )}
-                <div
-                  className={msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble'}
-                  style={{ fontFamily: 'Nunito Sans, sans-serif', color: msg.role === 'user' ? 'white' : '#3A2E28' }}
-                >
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-
-            {isTyping && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, #4A6741, #9CAF88)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Leaf size={14} color="white" />
-                </div>
-                <div className="chat-bubble" style={{ padding: '12px 16px' }}>
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    {[0, 1, 2].map(i => (
-                      <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#9CAF88', animation: `float ${0.6 + i * 0.2}s ease-in-out infinite` }} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Quick replies */}
-          {messages.length <= 1 && (
-            <div style={{ padding: '0 16px 12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {quickReplies.map((reply) => (
-                <button
-                  key={reply}
-                  onClick={() => sendMessage(reply)}
-                  style={{
-                    background: 'white',
-                    border: '1px solid rgba(193,135,107,0.3)',
-                    borderRadius: '50px',
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontFamily: 'Nunito Sans, sans-serif',
-                    color: '#C1876B',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  {reply}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Input */}
-          <div style={{ padding: '12px 16px 16px', borderTop: '1px solid rgba(212,197,185,0.3)', display: 'flex', gap: '8px' }}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage(input)}
-              placeholder="Ask me anything..."
-              style={{
-                flex: 1,
-                border: '2px solid rgba(212,197,185,0.5)',
-                borderRadius: '50px',
-                padding: '10px 16px',
-                fontSize: '13px',
-                fontFamily: 'Nunito Sans, sans-serif',
-                background: 'white',
-                outline: 'none',
-                color: '#3A2E28',
-              }}
-            />
-            <button
-              onClick={() => sendMessage(input)}
-              disabled={!input.trim()}
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '50%',
-                background: input.trim() ? 'linear-gradient(135deg, #C1876B, #9CAF88)' : 'rgba(212,197,185,0.3)',
-                border: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: input.trim() ? 'pointer' : 'default',
-                transition: 'all 0.3s ease',
-                flexShrink: 0,
-              }}
-            >
-              <Send size={16} color="white" />
-            </button>
+    <!-- CHAT WINDOW -->
+    <div id="ai-chat-window">
+      <div id="ai-chat-header">
+        <div class="ai-header-title">
+          <div class="ai-icon-dock"></div>
+          <div class="ai-header-text">
+            <b id="ai-header-agent-name">AI Assistant</b>
+            <span>● Active Now</span>
           </div>
         </div>
+        <span style="cursor:pointer;color:#666;font-size:18px;" id="ai-close-btn">✕</span>
       </div>
-    </>
-  );
+      <div id="ai-response-container"></div>
+      <div class="ai-input-area">
+        <input id="ai-msg" placeholder="Type your question..." autocomplete="off" />
+        <button class="ai-send-btn" id="ai-send-btn">Send</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrapper);
 }
+
+
+// ============================================================
+//  ⑤ BIND EVENTS — attaches all click/keypress listeners
+//  Called after injectHTML() so the DOM elements exist.
+// ============================================================
+function bindEvents() {
+  document.getElementById("ai-chat-bubble").addEventListener("click", toggleChat);
+  document.getElementById("ai-close-btn").addEventListener("click", toggleChat);
+  document.getElementById("ai-send-btn").addEventListener("click", () => send());
+  document.getElementById("ai-claim-btn").addEventListener("click", claimOffer);
+  document.getElementById("ai-maybe-later").addEventListener("click", closeModal);
+  document.getElementById("ai-msg").addEventListener("keypress", e => {
+    if (e.key === "Enter") send();
+  });
+
+  // Exit intent — fires when mouse moves to top of screen
+  document.addEventListener("mousemove", e => {
+    if (e.clientY < 10 && !hasPopped) {
+      document.getElementById("ai-exit-modal").classList.add("active");
+      hasPopped = true;
+    }
+  });
+}
+
+
+// ============================================================
+//  ⑥ SHEET LOADER — fetches business data from Google Sheet
+//  Populates SHEET_DATA (object) and SHEET_STRING (text for AI).
+//  Sheet format expected: Column A = key, Column B = value
+// ============================================================
+async function loadSheet() {
+  try {
+    const res = await fetch(CONFIG.SHEET_URL + "&cb=" + Date.now());
+    const csv = await res.text();
+
+    csv.split("\n").forEach(row => {
+      const [key, ...rest] = row.split(",");
+      if (key && key.trim()) {
+        SHEET_DATA[key.trim().toLowerCase()] = rest.join(",").trim();
+      }
+    });
+
+    SHEET_STRING = Object.entries(SHEET_DATA)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(" | ");
+
+    // Update promo code if sheet has one
+    if (SHEET_DATA["promos"]) {
+      document.getElementById("ai-modal-promo").innerText = SHEET_DATA["promos"];
+    }
+
+    // Update agent name in header
+    document.getElementById("ai-header-agent-name").innerText =
+      SHEET_DATA["agent_name"] || CONFIG.AGENT_NAME;
+
+    const bizName = SHEET_DATA["business_name"] || "us";
+    setGreeting(`Hey! 👋 Welcome to ${bizName}. I'm here to help you find the right service. What's your name?`);
+
+  } catch (err) {
+    console.warn("Sheet load failed:", err);
+    setGreeting("Hey! 👋 I'm here to help. What's your name so I can get started?");
+  }
+}
+
+
+// ============================================================
+//  ⑦ LEAD EXTRACTION — parses user messages for contact info
+//  Only scans user messages, never AI responses.
+//  Captures: name, email, phone, service
+// ============================================================
+function extractLeadData(text) {
+  const lower = text.toLowerCase().trim();
+
+  // Email
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  if (emailMatch) lead.email = emailMatch[0];
+
+  // Phone
+  const phoneMatch = text.match(/\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}/);
+  if (phoneMatch) lead.phone = phoneMatch[0];
+
+  // Name — only from short messages so AI responses don't pollute it
+  if (!lead.name && text.trim().length < 55) {
+    const nameMatch = text.trim().match(
+      /^(?:(?:hi|hey|hello|my name is|i am|i'm|name is|it's|its)\s+)?([a-zA-Z]{2,20})\s+([a-zA-Z]{2,20})$/i
+    );
+    if (nameMatch) {
+      const first = nameMatch[nameMatch.length - 2];
+      const last  = nameMatch[nameMatch.length - 1];
+      lead.name   = [first, last]
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(" ");
+    }
+  }
+
+  // Service — check sheet first, then fallback keywords
+  if (!lead.service) {
+    if (SHEET_DATA["services"]) {
+      const services = SHEET_DATA["services"].split("|").map(s => s.trim().toLowerCase());
+      const matched  = services.find(s => lower.includes(s.split(" ")[0]));
+      if (matched) lead.service = matched;
+    }
+
+    if (!lead.service) {
+      const keywords = [
+        "haircut","fade","beard","cut","trim","color","blowout",
+        "massage","nails","lashes","wax","facial","cleaning",
+        "plumbing","hvac","design","website","consult","repair",
+        "install","coaching","training","landscaping","detailing",
+        "painting","electrical","booking","appointment"
+      ];
+      const found = keywords.find(w => lower.includes(w));
+      if (found) lead.service = found;
+    }
+  }
+
+  // Fallback: grab service from last AI message context
+  if (!lead.service && chatHistory.length > 0) {
+    const lastAI = chatHistory.filter(m => m.role === "assistant").pop();
+    if (lastAI) {
+      const aiKeywords = ["plumbing","handyman","repair","install","coaching","training","cleaning"];
+      const found = aiKeywords.find(w => lastAI.content.toLowerCase().includes(w));
+      if (found) lead.service = found;
+    }
+  }
+}
+
+
+// ============================================================
+//  ⑧ LEAD HELPERS — check completion and build prompt context
+// ============================================================
+function isLeadComplete() {
+  return !!(lead.name && lead.email && lead.phone && lead.service);
+}
+
+// Injected into every AI prompt so the AI knows what to collect next
+function leadStatus() {
+  return `
+CURRENT LEAD STATUS:
+- Name    : ${lead.name    || "MISSING — ask their name first"}
+- Service : ${lead.service || "MISSING — ask what service they need"}
+- Email   : ${lead.email   || "MISSING — ask after service is known"}
+- Phone   : ${lead.phone   || "MISSING — ask last"}
+- Complete: ${isLeadComplete() ? "YES — thank them, say team will be in touch" : "NO — collect what is missing, one at a time"}
+
+COLLECTION ORDER: Name → Service → Email → Phone
+Never ask for something already collected.
+  `.trim();
+}
+
+
+// ============================================================
+//  ⑨ BOOKING BUTTON — shown in chat when lead is complete
+//  Requires a "booking_link" row in your Google Sheet.
+//  If no booking_link is found, nothing is shown.
+// ============================================================
+function showBookingButton() {
+  const bookingLink = SHEET_DATA["booking_link"];
+  if (!bookingLink) return;
+
+  const container = document.getElementById("ai-response-container");
+  const wrap      = document.createElement("div");
+  wrap.className  = "ai-booking-btn-wrap";
+  wrap.innerHTML  = `<a href="${bookingLink}" target="_blank" class="ai-booking-btn">📅 Book Your Appointment →</a>`;
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+
+// ============================================================
+//  ⑩ SAVE LEAD TO GOOGLE SHEET — fires once when lead is full
+//  Uses no-cors because Google Apps Script requires it from browser.
+//  To set up: deploy an Apps Script web app that accepts POST
+//  with fields: name, service, email, phone, business, transcript
+// ============================================================
+async function saveLeadToSheet() {
+  if (leadSent) return;
+  leadSent = true;
+
+  const bizName    = SHEET_DATA["business_name"] || "Business";
+  const transcript = chatHistory
+    .map(m => `${m.role === "user" ? "Customer" : "AI"}: ${m.content}`)
+    .join("\n");
+
+  try {
+    await fetch(CONFIG.LEADS_SHEET_URL, {
+      method:  "POST",
+      mode:    "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        name: lead.name, service: lead.service,
+        email: lead.email, phone: lead.phone,
+        business: bizName, transcript,
+      }),
+    });
+    console.log("✅ Lead saved:", lead.name);
+  } catch (err) {
+    console.error("❌ Sheet save failed:", err);
+    leadSent = false;
+  }
+}
+
+
+// ============================================================
+//  ⑪ SEND MESSAGE — main handler for user input
+// ============================================================
+async function send(overrideMsg = null) {
+  const input     = document.getElementById("ai-msg");
+  const container = document.getElementById("ai-response-container");
+  const userText  = overrideMsg || input.value.trim();
+  if (!userText) return;
+
+  // Render user bubble
+  container.innerHTML +=
+    `<div class="ai-message-row ai-row-user">
+       <div class="ai-avatar ai-avatar-user">U</div>
+       <div class="ai-msg-bubble ai-msg-user">${userText}</div>
+     </div>`;
+
+  if (!overrideMsg) input.value = "";
+
+  extractLeadData(userText);
+  chatHistory.push({ role: "user", content: userText });
+
+  // Typing indicator
+  const bubbleId = "ai-bubble-" + Date.now();
+  container.innerHTML +=
+    `<div class="ai-message-row ai-row-ai">
+       <div class="ai-avatar ai-avatar-ai">
+         <svg style="width:14px;height:14px;fill:#000" viewBox="0 0 24 24">
+           <path d="M9,5L7,11L1,13L7,15L9,21L11,15L17,13L11,11L9,5"/>
+         </svg>
+       </div>
+       <div id="${bubbleId}" class="ai-msg-bubble ai-msg-ai thinking-state">
+         <div class="ai-thinking-dots">
+           <div class="ai-dot"></div>
+           <div class="ai-dot"></div>
+           <div class="ai-dot"></div>
+         </div>
+       </div>
+     </div>`;
+  container.scrollTop = container.scrollHeight;
+
+  const reply = await streamResponse(bubbleId);
+  chatHistory.push({ role: "assistant", content: reply });
+
+  // Save lead + show booking button once all 4 fields are collected
+  if (isLeadComplete() && !leadSent) {
+    saveLeadToSheet();
+    showBookingButton();
+  }
+}
+
+
+// ============================================================
+//  ⑫ AI STREAM — calls your backend /api/chat endpoint
+//  Expects a streaming response from OpenAI-compatible API.
+//  The systemContext is rebuilt every message so the AI always
+//  knows the latest lead status and business info.
+// ============================================================
+async function streamResponse(bubbleId) {
+  const bubble    = document.getElementById(bubbleId);
+  const container = document.getElementById("ai-response-container");
+
+  const systemContext = `
+You are a helpful AI sales assistant for this business.
+Be friendly, direct, and conversational. Never sound robotic.
+Complete every sentence fully — never cut off mid-thought.
+
+BUSINESS INFO:
+${SHEET_STRING || "No business info loaded yet"}
+
+${leadStatus()}
+
+YOUR JOB:
+1. Collection order: Name → Service → Email → Phone
+2. Get one piece of info at a time. Never ask two questions at once.
+3. Keep replies to 2–3 sentences. Always end with a question.
+4. When lead is complete say: "Perfect! The team will reach out shortly about [service]."
+5. Only discuss services listed in the business info above.
+  `.trim();
+
+  let fullReply        = "";
+  let hasStartedTyping = false;
+
+  try {
+    const res = await fetch(CONFIG.API_ROUTE, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        sheetData:     SHEET_STRING,
+        systemContext: systemContext,
+        messages:      chatHistory.map(m => ({ role: m.role, content: m.content })),
+      }),
+    });
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer    = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim().startsWith("data: ")) continue;
+        const raw = line.trim().slice(6);
+        if (!raw || raw === "[DONE]") continue;
+        try {
+          const parsed  = JSON.parse(raw);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            if (!hasStartedTyping) {
+              bubble.classList.remove("thinking-state");
+              bubble.innerHTML = "";
+              hasStartedTyping = true;
+            }
+            fullReply += content;
+            bubble.innerText = fullReply;
+            container.scrollTop = container.scrollHeight;
+          }
+        } catch (_) {}
+      }
+    }
+
+  } catch (err) {
+    bubble.innerHTML = "<i>Connection lost. Please try again.</i>";
+    console.error("Stream error:", err);
+  }
+
+  return fullReply;
+}
+
+
+// ============================================================
+//  ⑬ UI HELPERS
+// ============================================================
+function setGreeting(text) {
+  document.getElementById("ai-response-container").innerHTML =
+    `<div class="ai-message-row ai-row-ai">
+       <div class="ai-avatar ai-avatar-ai">
+         <svg style="width:14px;height:14px;fill:#000" viewBox="0 0 24 24">
+           <path d="M9,5L7,11L1,13L7,15L9,21L11,15L17,13L11,11L9,5"/>
+         </svg>
+       </div>
+       <div class="ai-msg-bubble ai-msg-ai">${text}</div>
+     </div>`;
+}
+
+function toggleChat() {
+  const win    = document.getElementById("ai-chat-window");
+  const bubble = document.getElementById("ai-chat-bubble");
+  const mobile = window.innerWidth <= 480;
+
+  if (win.classList.contains("open")) {
+    win.classList.remove("open");
+    bubble.classList.remove("active-spiral");
+    if (mobile) {
+      bubble.style.opacity = "1";
+      bubble.style.pointerEvents = "auto";
+    }
+    setTimeout(() => { win.style.display = "none"; }, 400);
+  } else {
+    win.style.display = "flex";
+    setTimeout(() => {
+      win.classList.add("open");
+      bubble.classList.add("active-spiral");
+      if (mobile) {
+        bubble.style.opacity = "0";
+        bubble.style.pointerEvents = "none";
+      }
+    }, 10);
+  }
+}
+
+function closeModal() {
+  document.getElementById("ai-exit-modal").classList.remove("active");
+}
+
+function claimOffer() {
+  const promo = document.getElementById("ai-modal-promo").innerText;
+  closeModal();
+  if (!document.getElementById("ai-chat-window").classList.contains("open")) toggleChat();
+  send(`I want to claim the ${promo} offer.`);
+}
+
+
+// ============================================================
+//  ⑭ INIT — runs automatically when the script is imported
+//  Order: inject styles → inject HTML → bind events → load sheet
+// ============================================================
+(function init() {
+  injectStyles();
+  injectHTML();
+  bindEvents();
+  loadSheet();
+})();
