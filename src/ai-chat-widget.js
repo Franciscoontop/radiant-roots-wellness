@@ -99,18 +99,19 @@ function injectStyles() {
 
     /* ── CHAT BUBBLE ── */
     #ai-chat-bubble {
-      position: absolute; bottom: 20px; right: 20px;
-      width: 60px; height: 60px;
-      background: #fff; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; pointer-events: auto;
-      box-shadow: 0 0 15px rgba(255,255,255,0.3);
-      z-index: 2147483649;
-      transition: bottom 0.8s cubic-bezier(0.34,1.56,0.64,1),
-                  right 0.8s cubic-bezier(0.34,1.56,0.64,1),
-                  width 0.5s ease, height 0.5s ease,
-                  transform 0.8s cubic-bezier(0.22,1,0.36,1),
-                  box-shadow 0.3s ease;
+  position: absolute; bottom: 20px; right: 20px;
+  width: 60px; height: 60px;
+  background: #fff; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; pointer-events: auto;
+  box-shadow: 0 0 15px rgba(255,255,255,0.3);
+  z-index: 2147483649;
+  transition: bottom 0.8s cubic-bezier(0.34,1.56,0.64,1),
+              right 0.8s cubic-bezier(0.34,1.56,0.64,1),
+              width 0.5s ease, height 0.5s ease,
+              transform 0.8s cubic-bezier(0.22,1,0.36,1),
+              box-shadow 0.3s ease;
+}
     }
  #ai-chat-bubble.active-spiral {
   opacity: 0;
