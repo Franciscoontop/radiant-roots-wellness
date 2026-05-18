@@ -112,14 +112,12 @@ function injectStyles() {
                   transform 0.8s cubic-bezier(0.22,1,0.36,1),
                   box-shadow 0.3s ease;
     }
-    #ai-chat-bubble svg { transition: all 0.6s ease; }
-    #ai-chat-bubble.active-spiral {
-      bottom: 607px; right: 353px;
-      width: 26px; height: 26px;
-      transform: rotate(720deg); box-shadow: none;
-    }
-    #ai-chat-bubble.active-spiral svg { width: 14px; height: 14px; fill: #000; }
-
+ #ai-chat-bubble.active-spiral {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.5);
+}
+#ai-chat-bubble.active-spiral svg { width: 14px; height: 14px; fill: #000; }
     /* ── CHAT WINDOW ── */
     #ai-chat-window {
       position: absolute; bottom: 90px; right: 20px;
