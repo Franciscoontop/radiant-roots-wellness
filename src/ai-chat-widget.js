@@ -26,7 +26,7 @@
 // ============================================================
 const CONFIG = {
   SHEET_URL:       "https://docs.google.com/spreadsheets/d/e/2PACX-1vQVsTHX1E0Jd-f2oVoNH8N2YXdzgPZcn6iwmHE7GM8-nvMkZxZ93KEtN0jyCd4iqu1NjvBvmcOx9eu7/pubhtml",
-  LEADS_SHEET_URL: "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE",
+  LEADS_SHEET_URL: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQQlBMQchxKbi_7n7S14M3Ebu1p-y1r7iACmRqR6rY_PFk8aEae0LSxQ38nLEs2ZxH8ObairuBy-Wtk/pub?output=csv",
   AGENT_NAME:      "AI Assistant",
   API_ROUTE:       "/api/chat",
 };
